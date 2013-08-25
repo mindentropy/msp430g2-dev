@@ -6,11 +6,19 @@
 #define SIMO 	BIT7
 
 #define cs_enable()	\
-		P1OUT &= ~CS_PIN
+	P1OUT &= ~CS_PIN
 
 #define cs_disable()	\
-		P1OUT |= CS_PIN
+	P1OUT |= CS_PIN
 
+#define led1_off()	\
+	P1OUT &= ~BIT0
+
+#define led1_on()	\
+	P1OUT |= BIT0
+
+#define toggle_led1() \
+	P1OUT ^= BIT0;
 	
 void delay() {
 	uint16_t i = 0;
@@ -55,8 +63,8 @@ void configure_spi() {
 
 	UCB0CTL1 &= ~UCSWRST;
 
-	cs_enable();
-	IE2 |= UCB0TXIE;
+//	cs_enable();
+//	IE2 |= UCB0TXIE;
 }
 
 uint8_t flag = 0;
@@ -73,32 +81,32 @@ int main(void) {
 
 //	P1OUT = BIT0;
 
-	P1OUT |= BIT0|CS_PIN;
+	P1OUT |= CS_PIN|BIT0;
 	P1DIR |= BIT0|CS_PIN;
-
 
 	configure_spi();
 	
 	_BIS_SR(GIE);
-
+	
+	led1_off();
+	
+	cs_enable();
 	while(1) {
 		IE2 |= UCB0TXIE;
 		while(is_spi_busy())
 			;
-		cs_disable();
-		delay();
 	}
+	cs_disable();
 }
 
 
 __attribute__((interrupt(USCIAB0TX_VECTOR)))
 void spi_tx_isr(void) {
 	if(IFG2 & UCB0TXIFG) {
-		cs_enable();
 		IE2 &= ~UCB0TXIE;
 		UCB0TXBUF = ch;
 		ch++;
-		P1OUT ^= BIT0;
+		toggle_led1();
 	}
 }
 
@@ -106,7 +114,5 @@ __attribute__((interrupt(USCIAB0RX_VECTOR)))
 void spi_rx_isr(void) {
 	if(IFG2 & UCB0RXIFG) {
 		rxbuf = UCB0RXBUF;
-		if(rxbuf == 'A')
-			P1OUT ^= BIT0;
 	}
 }

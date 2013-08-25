@@ -11,6 +11,19 @@
 		P1OUT &= ~BIT0;	\
 		P2OUT |= BIT0
 
+#define toggle_led1() \
+		P1OUT ^= BIT1	//Red
+	
+
+#define toggle_led2()	\
+		P1OUT ^= BIT2	//Green
+	
+#define toggle_red()	\
+		toggle_led1()
+
+#define	toggle_green()	\
+		toggle_led2()
+	
 void delay() {
 	uint16_t i = 0;
 	uint16_t j = 0;
@@ -22,10 +35,10 @@ void delay() {
 	}
 }
 
-enum spi_transfer_state {
+/*enum spi_transfer_state {
 	START,
 	STOP
-} SPI_TRANSFER_STATE;
+} SPI_TRANSFER_STATE;*/
 
 /*const uint16_t num[10] = {
 	(~(0x7D))<<1,
@@ -76,7 +89,7 @@ void configure_timer() {
 }
 
 void configure_spi() {
-	SPI_TRANSFER_STATE = STOP;
+	//SPI_TRANSFER_STATE = STOP;
 	UCB0CTL1 = UCSWRST; //Set to reset state.
 	UCB0CTL0 = UCMODE_0; //3 wire spi
 	UCB0CTL0 &= ~UCMSB;
@@ -180,8 +193,6 @@ int main(void) {
 
 		units++;
 #endif
-		delay();
-		delay();
 	}
 }
 
@@ -231,23 +242,28 @@ void spi_rx_isr(void) {
 		rxbuf = UCB0RXBUF;
 		units = (rxbuf & 0x0F);
 		tens = (rxbuf & 0xF0)>>4;
-		P1OUT ^= BIT2;
+		toggle_green();
 	}
 }
 
+#define is_spi_tx_stop()	\
+	P1IES &	CS_PIN
+
+#define set_hi_to_lo_transition()	\
+		P1IES |= CS_PIN
+
+#define set_lo_to_hi_transition()	\
+		P1IES &= ~CS_PIN 
+	
 __attribute__((interrupt(PORT1_VECTOR)))
 void port_isr(void) {
-	if(P1IFG & CS_PIN) {
-		if(SPI_TRANSFER_STATE == STOP) {
-			IE2 |= UCB0RXIE; //Enable receive interrupt.
-			P1IES |= CS_PIN; //Low to high transition.
-			SPI_TRANSFER_STATE = START;
-			P1OUT ^= BIT1;
-		} else if(SPI_TRANSFER_STATE == START) {
-			P1IES &= ~CS_PIN; //high to low transition.
-			IE2 &= ~UCB0RXIE; //Stop the rx interrupt.
-			SPI_TRANSFER_STATE = STOP;
-		}
-		P1IFG &= ~CS_PIN; //Clear the interrupt flag.
+	if(is_spi_tx_stop()) {	//High to low transition. Rx start.
+		IE2 |= UCB0RXIE; //Enable receive interrupt.
+		P1IES &= ~CS_PIN; //Wait for low to high transition.
+		toggle_red();
+	} else { //Low to high transition. Rx stop.
+		IE2 &= ~UCB0RXIE;
+		P1IES |= CS_PIN; //Wait for high to low transition.
 	}
+	P1IFG &= ~CS_PIN; //Clear the interrupt flag.
 }
