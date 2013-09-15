@@ -3,27 +3,43 @@
 
 #define CS_PIN BIT4
 
+#define RED_LED_PIN		BIT1
+#define GREEN_LED_PIN	BIT2
+
 #define DIGIT1()	\
-		P2OUT &= ~BIT0;	\
-		P1OUT |= BIT0
+	P2OUT &= ~BIT0;	\
+	P1OUT |= BIT0
 
 #define DIGIT2()	\
-		P1OUT &= ~BIT0;	\
-		P2OUT |= BIT0
+	P1OUT &= ~BIT0;	\
+	P2OUT |= BIT0
 
 #define toggle_led1() \
-		P1OUT ^= BIT1	//Red
+	P1OUT ^= BIT1	//Red
 	
 
 #define toggle_led2()	\
-		P1OUT ^= BIT2	//Green
+	P1OUT ^= BIT2	//Green
 	
 #define toggle_red()	\
-		toggle_led1()
+	toggle_led1()
 
 #define	toggle_green()	\
-		toggle_led2()
+	toggle_led2()
 	
+#define clear_rx_pending_interrupt()	\
+	IFG2 &= ~UCB0RXIFG;
+	
+
+#define set_spi_reset()	\
+	UCB0CTL1 |= UCSWRST
+
+#define remove_spi_reset()	\
+	UCB0CTL1 &= ~UCSWRST
+	
+
+uint8_t ch = 0;
+
 void delay() {
 	uint16_t i = 0;
 	uint16_t j = 0;
@@ -91,7 +107,7 @@ void configure_timer() {
 void configure_spi() {
 	//SPI_TRANSFER_STATE = STOP;
 	UCB0CTL1 = UCSWRST; //Set to reset state.
-	UCB0CTL0 = UCMODE_0; //3 wire spi
+	UCB0CTL0 = UCMODE_0|UCSYNC; //3 wire spi
 	UCB0CTL0 &= ~UCMSB;
 
 	UCB0CTL0 &= ~UCMST; //Set to slave.
@@ -101,7 +117,8 @@ void configure_spi() {
 	P1SEL2 |= (BIT5|BIT6|BIT7); 
 
 	UCB0CTL1 &= ~UCSWRST;
-
+	
+	clear_rx_pending_interrupt();
 	IE2 &= ~(UCB0RXIE|UCB0TXIE); //Stop the rx interrupt.
 }
 
@@ -117,11 +134,7 @@ uint8_t rxbuf = 0;
 
 uint8_t flag = 0;
 
-int main(void) {
-	uint16_t i = 8;
-
-	WDTCTL = WDTPW | WDTHOLD;
-
+void test_pins() {
 	/*P2SEL &= ~(BIT6|BIT7);
 	P1OUT = (BIT0|BIT1|BIT2|BIT3|BIT4|BIT5|BIT6|BIT7);
 	P2OUT = (BIT0|BIT1|BIT2|BIT3|BIT4|BIT5|BIT6|BIT7);
@@ -137,14 +150,22 @@ int main(void) {
 		P1OUT ^= BIT1;
 		delay();
 	}*/
+}
+
+int main(void) {
+	uint16_t i = 8;
+
+	WDTCTL = WDTPW | WDTHOLD;
+
 
 	P2SEL &= ~(BIT6|BIT7);
 	P2OUT &= ~BIT0; //Preload.
-	P2DIR |= (BIT0|BIT1|BIT2|BIT3|BIT4|BIT5|BIT6|BIT7);
-	P2OUT |= (BIT1|BIT2|BIT3|BIT4|BIT5|BIT6|BIT7);
+	P2DIR |= (BIT0|RED_LED_PIN|GREEN_LED_PIN|BIT3|BIT4|BIT5|BIT6|BIT7);
+	P2OUT |= (RED_LED_PIN|GREEN_LED_PIN|BIT3|BIT4|BIT5|BIT6|BIT7);
 
 	P1OUT &= ~BIT0; //Preload.
-	P1DIR |= (BIT0|BIT1|BIT2);
+	P1DIR |= (BIT0|RED_LED_PIN|GREEN_LED_PIN);
+
 /* Chip select */
 	P1OUT |= CS_PIN;	//Set to pull up.
 	P1REN |= CS_PIN;
@@ -155,11 +176,11 @@ int main(void) {
 	P1IFG &= ~CS_PIN; //Clear the interrupt flag.
 /**************/
 
-	P1OUT &= ~BIT2;
-	P1OUT &= ~BIT1;
+	P1OUT &= ~GREEN_LED_PIN;
+	P1OUT &= ~RED_LED_PIN;
 	
 	configure_timer();
-	configure_spi();
+	//configure_spi();
 
 	_BIS_SR(GIE);
 
@@ -226,8 +247,7 @@ void TIMER0_A1_ISR(void) {
 	}
 }
 
-uint8_t ch = 0;
-
+/*
 __attribute__((interrupt(USCIAB0TX_VECTOR)))
 void spi_tx_isr(void) {
 	if(IFG2 & UCB0TXIFG) {
@@ -235,13 +255,14 @@ void spi_tx_isr(void) {
 		IE2 &= ~UCB0TXIE;
 	}
 }
+*/
 
 __attribute__((interrupt(USCIAB0RX_VECTOR)))
 void spi_rx_isr(void) {
 	if(IFG2 & UCB0RXIFG) {
 		rxbuf = UCB0RXBUF;
-		units = (rxbuf & 0x0F);
 		tens = (rxbuf & 0xF0)>>4;
+		units = (rxbuf & 0x0F);
 		toggle_green();
 	}
 }
@@ -258,12 +279,15 @@ void spi_rx_isr(void) {
 __attribute__((interrupt(PORT1_VECTOR)))
 void port_isr(void) {
 	if(is_spi_tx_stop()) {	//High to low transition. Rx start.
+		configure_spi();
 		IE2 |= UCB0RXIE; //Enable receive interrupt.
 		P1IES &= ~CS_PIN; //Wait for low to high transition.
 		toggle_red();
 	} else { //Low to high transition. Rx stop.
 		IE2 &= ~UCB0RXIE;
 		P1IES |= CS_PIN; //Wait for high to low transition.
+		toggle_red();
+		set_spi_reset();
 	}
 	P1IFG &= ~CS_PIN; //Clear the interrupt flag.
 }
