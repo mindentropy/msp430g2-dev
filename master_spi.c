@@ -1,15 +1,26 @@
 #include <msp430.h>
 #include <stdint.h>
 
+#define S2_PIN	BIT3 //Pin pulled high.
 #define CS_PIN 	BIT4
 #define SOMI	BIT6
 #define SIMO 	BIT7
+
 
 #define cs_enable()	\
 	P1OUT &= ~CS_PIN
 
 #define cs_disable()	\
 	P1OUT |= CS_PIN
+
+#define disable_spi_tx_pending_interrupt()	\
+	IFG2 &= ~UCB0TXIFG
+
+#define disable_spi_tx_interrupt()	\
+	IE2 &= ~UCB0TXIE
+
+#define enable_spi_tx_interrupt()	\
+	IE2 |= UCB0TXIE
 
 #define led1_off()	\
 	P1OUT &= ~BIT0
@@ -19,7 +30,7 @@
 
 #define toggle_led1() \
 	P1OUT ^= BIT0;
-	
+
 void delay() {
 	uint16_t i = 0;
 	uint16_t j = 0;
@@ -47,9 +58,8 @@ void configure_spi() {
 	UCB0CTL1 = UCSWRST; //Set to reset state.
 
 	UCB0CTL1 |= UCSSEL_3;  //Set to SMCLK.
-	UCB0CTL0 = UCMODE_0|UCMST; //3 wire spi, master
+	UCB0CTL0 = UCMODE_0|UCMST|UCSYNC; //3 wire spi, master
 	UCB0CTL0 &= ~UCMSB;
-	//UCB0CTL0 &= ~UCSYNC;
 
 	
 	/* P1SEL and P1SEL2 == 1 for SPI function. */
@@ -60,8 +70,9 @@ void configure_spi() {
 	UCB0BR1 = 0x04;
 
 	//UCB0STAT |= UCLISTEN; //Enable listen loopback mode.
-
 	UCB0CTL1 &= ~UCSWRST;
+	
+	disable_spi_tx_interrupt();
 
 //	cs_enable();
 //	IE2 |= UCB0TXIE;
@@ -70,19 +81,26 @@ void configure_spi() {
 uint8_t flag = 0;
 uint8_t rxbuf = 0;
 
-uint8_t ch = 0;
+uint8_t spi_counter = 0;
 
 #define is_spi_busy() \
 	(UCB0STAT & UCBUSY)
 	
 int main(void) {
+	uint16_t i = 0;
+	uint16_t j = 0;
 
 	WDTCTL = WDTPW | WDTHOLD;
 
 //	P1OUT = BIT0;
 
+	
 	P1OUT |= CS_PIN|BIT0;
 	P1DIR |= BIT0|CS_PIN;
+
+	P1OUT |= S2_PIN;
+	P1REN |= S2_PIN;
+	P1DIR &= ~S2_PIN;
 
 	configure_spi();
 	
@@ -90,23 +108,37 @@ int main(void) {
 	
 	led1_off();
 	
-	cs_enable();
+/*	while((P1IN & S2_PIN)) //While pulled high.
+			;*/
+
+
 	while(1) {
-		IE2 |= UCB0TXIE;
+		cs_enable();
+		spi_counter++;
+		enable_spi_tx_interrupt();
+
 		while(is_spi_busy())
 			;
+
+	/*	while((P1IN & S2_PIN)) //While pulled high.
+			;
+
+		while(!(P1IN & S2_PIN)) //While pulled high.
+			;*/
+
+
+		cs_disable();
+		delay();
 	}
-	cs_disable();
 }
 
 
 __attribute__((interrupt(USCIAB0TX_VECTOR)))
 void spi_tx_isr(void) {
 	if(IFG2 & UCB0TXIFG) {
-		IE2 &= ~UCB0TXIE;
-		UCB0TXBUF = ch;
-		ch++;
 		toggle_led1();
+		UCB0TXBUF = spi_counter;
+		disable_spi_tx_interrupt();
 	}
 }
 
